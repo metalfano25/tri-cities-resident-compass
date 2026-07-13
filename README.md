@@ -2,12 +2,13 @@
 
 A mobile-first resident dashboard prototype for Geneva, Batavia, and St. Charles, Illinois.
 
-The site brings together clearly attributed shortcuts for city notices, public works, events, civic meetings, resident services, and Kane County emergency information. This first version uses balanced demonstration data and always links residents back to the authoritative source.
+The site brings together clearly attributed city notices, public works updates, events, civic meetings, resident services, and Kane County emergency information. It refreshes public official feeds and municipal listings through a server-side normalization layer, then links every item back to the authoritative source.
 
 ## Important status
 
 - This is an independent prototype, not a government website.
-- The current cards are demonstration content, not live alerts.
+- Current cards are fetched from public official sources when the page loads.
+- The site is an aggregator, not a real-time or guaranteed-complete alert service.
 - It is not an emergency alert replacement. Call 911 for emergencies.
 - Exact dates, eligibility, cancellations, and current conditions must be verified at the linked official source.
 
@@ -44,11 +45,20 @@ For Publishing, choose a web-server deployment such as Autoscale and use:
 - Build command: `npm run build`
 - Run command: `npm run start`
 
-The current prototype does not require environment variables, a database, or persistent storage.
+The current application does not require environment variables, a database, or persistent storage. Its server must be allowed to make outbound HTTPS requests to the configured official sources.
+
+## Live sources
+
+- Geneva City News, Road Construction, and Special Events RSS feeds
+- Batavia City and Park District iCal feeds
+- Batavia City Live Feed
+- St. Charles City News & Alerts and City Events listings
+
+The API applies request timeouts, response-size limits, per-source failure isolation, balanced community caps, visible retrieval timestamps, and direct canonical links. When one source fails, other communities remain available and the source-health section reports the partial state.
 
 ## Product direction
 
-The next production milestone is replacing the demonstration records with permitted official feeds or curated adapters that preserve:
+The next production milestone is expanding the permitted official adapters while preserving:
 
 - publisher and canonical URL;
 - jurisdiction and affected area;

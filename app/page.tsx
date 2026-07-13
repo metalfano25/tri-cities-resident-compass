@@ -1,67 +1,167 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   communities,
   countyEmergencyResource,
-  meetings,
   serviceShortcuts,
-  todayUpdates,
-  upcomingEvents,
   type CommunityId,
-  type SourceMetadata,
 } from "./data";
+import type {
+  LiveDataPayload,
+  LiveEvent,
+  LiveNotice,
+} from "../lib/live-types";
 
 type CommunityFilter = "all" | CommunityId;
+type LoadState = "loading" | "ready" | "error";
 
 const filters: Array<{ id: CommunityFilter; label: string }> = [
   { id: "all", label: "All Tri-Cities" },
-  ...communities.map((community) => ({
-    id: community.id,
-    label: community.shortName,
-  })),
+  ...communities.map((item) => ({ id: item.id, label: item.shortName })),
 ];
 
 const communityName = (id: CommunityId) =>
-  communities.find((community) => community.id === id)?.shortName ?? id;
+  communities.find((item) => item.id === id)?.shortName ?? id;
 
-const sourceState = (record: SourceMetadata) =>
-  record.freshness === "check-source" || record.status === "verify-with-source"
-    ? "Verify at source"
-    : record.freshness === "evergreen"
-      ? "Official resource"
-      : "Current source";
+const formatDate = (value: string) =>
+  new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/Chicago",
+    timeZoneName: "short",
+  }).format(new Date(value));
 
-function SourceLine({ record }: { record: SourceMetadata }) {
+const todayLabel = () =>
+  new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    timeZone: "America/Chicago",
+  }).format(new Date());
+
+function LiveSourceLine({ item }: { item: LiveNotice | LiveEvent }) {
   return (
     <p className="source-line">
-      <span className="source-state">{sourceState(record)}</span>
+      <span className="source-state">Official source</span>
       <span aria-hidden="true">·</span>
-      <span>{record.sourceLabel}</span>
+      <span>{item.sourceName}</span>
       <span aria-hidden="true">·</span>
-      <time dateTime={record.lastChecked} title="July 12, 2026 at 9:00 AM CT">
-        demo checked Jul 12
-      </time>
+      {"publishedAt" in item && item.publishedAt && (
+        <>
+          <time dateTime={item.publishedAt}>published {formatDate(item.publishedAt)}</time>
+          <span aria-hidden="true">·</span>
+        </>
+      )}
+      <time dateTime={item.fetchedAt}>checked {formatDate(item.fetchedAt)}</time>
     </p>
+  );
+}
+
+function DataState({
+  state,
+  message,
+  onRetry,
+}: {
+  state: LoadState;
+  message?: string;
+  onRetry: () => void;
+}) {
+  if (state === "loading") {
+    return (
+      <div className="data-state" role="status">
+        <strong>Refreshing official sources…</strong>
+        <span>Checking city feeds, calendars, and public listings.</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="data-state data-state-error" role="status">
+      <strong>Live information could not be refreshed.</strong>
+      <span>{message ?? "Official shortcuts remain available below."}</span>
+      <button className="secondary-button" type="button" onClick={onRetry}>
+        Try again
+      </button>
+    </div>
   );
 }
 
 export default function Home() {
   const [community, setCommunity] = useState<CommunityFilter>("all");
+  const [liveData, setLiveData] = useState<LiveDataPayload | null>(null);
+  const [loadState, setLoadState] = useState<LoadState>("loading");
+  const [loadMessage, setLoadMessage] = useState<string>();
+
+  const loadLiveData = useCallback(async () => {
+    setLoadState("loading");
+    setLoadMessage(undefined);
+    setLiveData(null);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+
+    try {
+      const response = await fetch("/api/live", {
+        cache: "no-store",
+        signal: controller.signal,
+        headers: { accept: "application/json" },
+      });
+      if (!response.ok) throw new Error(`Source refresh returned ${response.status}`);
+      const payload = (await response.json()) as LiveDataPayload;
+      if (!Array.isArray(payload.notices) || !Array.isArray(payload.events)) {
+        throw new Error("Source refresh returned an invalid response");
+      }
+      setLiveData(payload);
+      setLoadState("ready");
+    } catch (error) {
+      setLoadState("error");
+      setLoadMessage(
+        error instanceof Error && error.name !== "AbortError"
+          ? error.message
+          : "The source refresh timed out.",
+      );
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }, []);
+
+  useEffect(() => {
+    const refresh = window.setTimeout(() => void loadLiveData(), 0);
+    return () => window.clearTimeout(refresh);
+  }, [loadLiveData]);
 
   const selectedLabel =
-    filters.find((filter) => filter.id === community)?.label ?? "All Tri-Cities";
-  const visibleToday = todayUpdates.filter(
-    (item) => community === "all" || item.communityId === community,
+    filters.find((item) => item.id === community)?.label ?? "All Tri-Cities";
+
+  const visibleNotices = useMemo(
+    () =>
+      (liveData?.notices ?? []).filter(
+        (item) => community === "all" || item.communityId === community,
+      ),
+    [community, liveData],
   );
-  const visibleEvents = upcomingEvents.filter(
-    (event) => community === "all" || event.communityId === community,
+  const visibleEvents = useMemo(
+    () =>
+      (liveData?.events ?? []).filter(
+        (item) =>
+          item.category === "event" &&
+          (community === "all" || item.communityId === community),
+      ),
+    [community, liveData],
   );
-  const visibleMeetings = meetings.filter(
-    (meeting) => community === "all" || meeting.communityId === community,
+  const visibleMeetings = useMemo(
+    () =>
+      (liveData?.events ?? []).filter(
+        (item) =>
+          item.category === "meeting" &&
+          (community === "all" || item.communityId === community),
+      ),
+    [community, liveData],
   );
   const visibleServices = serviceShortcuts.filter(
-    (service) => community === "all" || service.communityId === community,
+    (item) => community === "all" || item.communityId === community,
   );
 
   function selectCommunity(next: CommunityFilter) {
@@ -71,6 +171,15 @@ export default function Home() {
     else url.searchParams.set("community", next);
     window.history.replaceState({}, "", url);
   }
+
+  const modeLabel =
+    liveData?.mode === "live"
+      ? "Live official sources"
+      : liveData?.mode === "partial"
+        ? "Some sources unavailable"
+        : loadState === "loading"
+          ? "Refreshing official sources"
+          : "Live refresh unavailable";
 
   return (
     <>
@@ -98,10 +207,15 @@ export default function Home() {
       <main id="top">
         <div className="notice-strip">
           <div className="shell notice-inner">
-            <strong>Independent demo</strong>
+            <strong>{modeLabel}</strong>
             <span>
-              Sample listings are not live alerts. Always verify details with the linked official source.
+              Independent service. Always confirm urgent details with the linked agency.
             </span>
+            {loadState !== "loading" && (
+              <button className="strip-button" type="button" onClick={loadLiveData}>
+                Refresh
+              </button>
+            )}
           </div>
         </div>
 
@@ -128,13 +242,17 @@ export default function Home() {
           </fieldset>
 
           <div className="hero-copy">
-            <p className="eyebrow">Sunday, July 12 · Fox River communities</p>
+            <p className="eyebrow">{todayLabel()} · Fox River communities</p>
             <h1 id="today-title">What affects me today?</h1>
             <p className="hero-summary">
-              One clear starting point for timely city notices, events, meetings, and everyday services.
+              Current city updates, upcoming events, public meetings, and official resident services in one place.
             </p>
             <p className="result-summary" aria-live="polite" aria-atomic="true">
-              Showing {visibleToday.length} demo updates for {selectedLabel}.
+              {loadState === "ready"
+                ? `${visibleNotices.length} updates published in the last 21 days for ${selectedLabel}.`
+                : loadState === "loading"
+                  ? `Checking official sources for ${selectedLabel}.`
+                  : `Live refresh is unavailable for ${selectedLabel}.`}
             </p>
           </div>
         </section>
@@ -142,29 +260,36 @@ export default function Home() {
         <section id="today" className="shell section-block today-section" aria-labelledby="today-updates-title">
           <div className="section-heading">
             <div>
-              <p className="kicker">Start here</p>
-              <h2 id="today-updates-title">Today&apos;s resident updates</h2>
+              <p className="kicker">Latest from local agencies</p>
+              <h2 id="today-updates-title">Recent resident updates</h2>
             </div>
-            <p>Official destinations, clearly labeled demo context.</p>
+            <p>Official excerpts with direct source links and visible retrieval times.</p>
           </div>
 
-          <div className="today-grid">
-            {visibleToday.map((update, index) => (
-              <article className={`update-card ${index === 0 ? "priority-card" : ""}`} key={update.id}>
-                <div className="card-labels">
-                  <span className="type-label">{update.kind}</span>
-                  <span>{communityName(update.communityId)}</span>
-                  {update.isDemo && <span className="demo-label">Demo data</span>}
-                </div>
-                <h3>{update.title}</h3>
-                <p className="card-copy">{update.summary}</p>
-                <SourceLine record={update} />
-                <a className="text-link" href={update.sourceUrl}>
-                  {update.actionLabel}
-                </a>
-              </article>
-            ))}
-          </div>
+          {loadState !== "ready" ? (
+            <DataState state={loadState} message={loadMessage} onRetry={loadLiveData} />
+          ) : visibleNotices.length === 0 ? (
+            <div className="data-state">
+              <strong>No recent updates were returned for {selectedLabel}.</strong>
+              <span>Use the resident shortcuts below to check that community directly.</span>
+            </div>
+          ) : (
+            <div className="today-grid">
+              {visibleNotices.map((update, index) => (
+                <article className={`update-card ${index === 0 ? "priority-card" : ""}`} key={update.id}>
+                  <div className="card-labels">
+                    <span className="type-label">{update.kind.replace("-", " ")}</span>
+                    <span>{communityName(update.communityId)}</span>
+                    <span className="live-label">Live source</span>
+                  </div>
+                  <h3>{update.title}</h3>
+                  <p className="card-copy">{update.summary}</p>
+                  <LiveSourceLine item={update} />
+                  <a className="text-link" href={update.canonicalUrl}>Read the official update</a>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
 
         <section id="week" className="section-tint" aria-labelledby="week-title">
@@ -172,33 +297,42 @@ export default function Home() {
             <div className="section-heading">
               <div>
                 <p className="kicker">Plan ahead</p>
-                <h2 id="week-title">This week around the Tri-Cities</h2>
+                <h2 id="week-title">The next two weeks around the Tri-Cities</h2>
               </div>
-              <p>Sample events—confirm date, venue, and registration before going.</p>
+              <p>Upcoming events from official city and park-district calendars.</p>
             </div>
-            <div className="event-list">
-              {visibleEvents.map((event) => (
-                <article className="event-row" key={event.id}>
-                  <div className="event-date" aria-hidden="true">
-                    <span>Sample</span>
-                    <strong>{event.dateLabel.match(/\d+/)?.[0] ?? "—"}</strong>
-                  </div>
-                  <div className="event-details">
-                    <div className="card-labels">
-                      <span>{communityName(event.communityId)}</span>
-                      <span className="demo-label">Demo event</span>
+            {loadState === "ready" && visibleEvents.length > 0 ? (
+              <div className="event-list">
+                {visibleEvents.map((event) => (
+                  <article className="event-row" key={event.id}>
+                    <div className="event-date" aria-hidden="true">
+                      <span>{event.dateLabel.split(" ")[0]}</span>
+                      <strong>{event.dateLabel.match(/\d+/)?.[0] ?? "—"}</strong>
                     </div>
-                    <h3>{event.title}</h3>
-                    <p className="event-meta">{event.dateLabel} · {event.timeLabel}</p>
-                    <p>{event.location} · {event.costLabel}</p>
-                    <SourceLine record={event} />
-                  </div>
-                  <a className="row-link" href={event.sourceUrl} aria-label={`${event.actionLabel}: ${event.title}`}>
-                    {event.actionLabel}
-                  </a>
-                </article>
-              ))}
-            </div>
+                    <div className="event-details">
+                      <div className="card-labels">
+                        <span>{communityName(event.communityId)}</span>
+                        <span className="live-label">Official calendar</span>
+                      </div>
+                      <h3>{event.title}</h3>
+                      <p className="event-meta">{event.dateLabel} · {event.timeLabel}</p>
+                      <p>{event.location}</p>
+                      <LiveSourceLine item={event} />
+                    </div>
+                    <a className="row-link" href={event.canonicalUrl} aria-label={`View official event: ${event.title}`}>
+                      View official event
+                    </a>
+                  </article>
+                ))}
+              </div>
+            ) : loadState === "error" ? (
+              <DataState state={loadState} message={loadMessage} onRetry={loadLiveData} />
+            ) : (
+              <div className="data-state">
+                <strong>{loadState === "loading" ? "Loading upcoming events…" : "No upcoming events were returned."}</strong>
+                <span>Official calendar links remain available in Resident shortcuts.</span>
+              </div>
+            )}
           </div>
         </section>
 
@@ -208,27 +342,34 @@ export default function Home() {
               <p className="kicker">Public business</p>
               <h2 id="meetings-title">Civic meetings</h2>
             </div>
-            <p>Sample timing with direct links to public information.</p>
+            <p>Meeting dates from official municipal calendars; verify agendas at the source.</p>
           </div>
-          <div className="meeting-grid">
-            {visibleMeetings.map((meeting) => (
-              <article className="meeting-card" key={meeting.id}>
-                <div className="card-labels">
-                  <span>{communityName(meeting.communityId)}</span>
-                  <span className="demo-label">Demo meeting</span>
-                </div>
-                <p className="meeting-body">{meeting.body}</p>
-                <h3>{meeting.title}</h3>
-                <dl className="meeting-facts">
-                  <div><dt>When</dt><dd>{meeting.dateLabel}, {meeting.timeLabel}</dd></div>
-                  <div><dt>Where</dt><dd>{meeting.location}</dd></div>
-                  <div><dt>Agenda</dt><dd>Verify availability at the official source</dd></div>
-                </dl>
-                <SourceLine record={meeting} />
-                <a className="text-link" href={meeting.sourceUrl}>{meeting.agendaLabel}</a>
-              </article>
-            ))}
-          </div>
+          {loadState === "ready" && visibleMeetings.length > 0 ? (
+            <div className="meeting-grid">
+              {visibleMeetings.map((meeting) => (
+                <article className="meeting-card" key={meeting.id}>
+                  <div className="card-labels">
+                    <span>{communityName(meeting.communityId)}</span>
+                    <span className="live-label">Official calendar</span>
+                  </div>
+                  <h3>{meeting.title}</h3>
+                  <dl className="meeting-facts">
+                    <div><dt>When</dt><dd>{meeting.dateLabel}, {meeting.timeLabel}</dd></div>
+                    <div><dt>Where</dt><dd>{meeting.location}</dd></div>
+                  </dl>
+                  <LiveSourceLine item={meeting} />
+                  <a className="text-link" href={meeting.canonicalUrl}>Open official meeting information</a>
+                </article>
+              ))}
+            </div>
+          ) : loadState === "error" ? (
+            <DataState state={loadState} message={loadMessage} onRetry={loadLiveData} />
+          ) : (
+            <div className="data-state">
+              <strong>No meetings are available in the current live response.</strong>
+              <span>Use the official agenda and city-calendar shortcuts below.</span>
+            </div>
+          )}
         </section>
 
         <section id="services" className="section-tint" aria-labelledby="services-title">
@@ -265,19 +406,29 @@ export default function Home() {
 
         <section id="sources" className="shell section-block source-explainer" aria-labelledby="sources-title">
           <div>
-            <p className="kicker">How to use this site</p>
+            <p className="kicker">Source health</p>
             <h2 id="sources-title">A compass, not the source of record</h2>
           </div>
           <div className="explainer-copy">
             <p>
-              This independent prototype organizes links to public information. It is not operated by Geneva,
-              Batavia, St. Charles, Kane County, or any park district. It is not an emergency alert replacement.
+              This independent service reads public RSS, iCal, and municipal listings from Geneva, Batavia,
+              St. Charles, and their public agencies. It is not operated by those agencies and is not an emergency alert replacement.
             </p>
             <p>
-              Every time-sensitive item in this version is labeled <strong>Demo data</strong> and
-              <strong> Verify at source</strong>. The linked public agency remains the authority for accuracy,
-              cancellations, eligibility, and current conditions.
+              We retain short factual excerpts and canonical links—not full articles or agency images. The linked agency remains
+              authoritative for accuracy, cancellations, eligibility, and current conditions.
             </p>
+            {liveData && (
+              <ul className="source-health" aria-label="Live source status">
+                {liveData.sources.map((source) => (
+                  <li key={source.id}>
+                    <span className={`health-dot health-${source.state}`} aria-hidden="true" />
+                    <a href={source.url}>{source.name}</a>
+                    <span>{source.itemCount} items · {source.state}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </section>
 
@@ -287,7 +438,7 @@ export default function Home() {
               <p className="kicker">Immediate help</p>
               <h2 id="emergency-title">This is not an emergency service.</h2>
             </div>
-            <p><strong>Call 911 for an emergency.</strong> Do not rely on this demo for urgent safety information.</p>
+            <p><strong>Call 911 for an emergency.</strong> Do not rely on this site for urgent safety information.</p>
           </div>
         </aside>
       </main>
@@ -296,14 +447,14 @@ export default function Home() {
         <div className="shell footer-inner">
           <div>
             <strong>Tri-Cities Compass</strong>
-            <p>Independent civic-utility prototype for Geneva, Batavia, and St. Charles, Illinois.</p>
+            <p>Independent civic utility for Geneva, Batavia, and St. Charles, Illinois.</p>
           </div>
           <div className="footer-links">
             <a href="#today">Today</a>
             <a href="#services">Resident shortcuts</a>
             <a href="#sources">Source policy</a>
           </div>
-          <p className="footer-note">Demo data · Verify at official sources · Call 911 for emergencies</p>
+          <p className="footer-note">Official-source excerpts · Visible freshness · Call 911 for emergencies</p>
         </div>
       </footer>
     </>
