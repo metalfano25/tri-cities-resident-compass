@@ -8,6 +8,7 @@ import {
   type CommunityId,
 } from "./data";
 import type { LiveDataPayload, LiveEvent, LiveNotice } from "../lib/live-types";
+import type { InsightPayload } from "../lib/insight-types";
 
 type CommunityFilter = "all" | CommunityId;
 type LoadState = "loading" | "ready" | "error";
@@ -90,6 +91,8 @@ export default function Home() {
   const [liveData, setLiveData] = useState<LiveDataPayload | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [loadMessage, setLoadMessage] = useState<string>();
+  const [insightData, setInsightData] = useState<InsightPayload | null>(null);
+  const [insightState, setInsightState] = useState<LoadState>("loading");
 
   const loadLiveData = useCallback(async () => {
     setLoadState("loading");
@@ -132,6 +135,39 @@ export default function Home() {
       window.removeEventListener("popstate", syncFromUrl);
     };
   }, [loadLiveData]);
+
+  useEffect(() => {
+    if (!liveData) return;
+    const controller = new AbortController();
+    let requestTimeout: number | undefined;
+    const start = window.setTimeout(() => {
+      setInsightData(null);
+      setInsightState("loading");
+      requestTimeout = window.setTimeout(() => controller.abort(), 20_000);
+      void fetch(`/api/insights?community=${encodeURIComponent(community)}`, {
+        cache: "no-store",
+        signal: controller.signal,
+        headers: { accept: "application/json" },
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error(`Insight refresh returned ${response.status}`);
+          const payload = (await response.json()) as InsightPayload;
+          if (!Array.isArray(payload.insights)) throw new Error("Invalid insight response");
+          if (payload.scope !== community) throw new Error("Insight scope did not match the selected community");
+          setInsightData(payload);
+          setInsightState("ready");
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setInsightState("error");
+        })
+        .finally(() => window.clearTimeout(requestTimeout));
+    }, 0);
+    return () => {
+      window.clearTimeout(start);
+      window.clearTimeout(requestTimeout);
+      controller.abort();
+    };
+  }, [community, liveData]);
 
   const selectedLabel = filters.find((item) => item.id === community)?.label ?? "All Tri-Cities";
   const visibleNotices = useMemo(
@@ -177,7 +213,7 @@ export default function Home() {
               <span><strong>Tri-Cities Compass</strong><small>Fox River · Illinois</small></span>
             </a>
             <nav aria-label="Page sections">
-              <a href="#today">Today</a><a href="#week">This week</a><a href="#services">Services</a>
+              <a href="#insights">AI briefing</a><a href="#today">Today</a><a href="#week">This week</a><a href="#services">Services</a>
             </nav>
             <button
               className="refresh-button"
@@ -230,7 +266,54 @@ export default function Home() {
               <p>Independent civic utility. Always confirm urgent details with the linked agency.</p>
             </aside>
           </section>
-      </div>
+        </div>
+
+      <section id="insights" className="insight-section" aria-labelledby="insight-title">
+        <div className="shell section-block">
+          <div className="insight-heading">
+            <div>
+              <p className="kicker">Resident impact briefing</p>
+              <h2 id="insight-title">What could this<br /><em>mean for you?</em></h2>
+            </div>
+            <div className="insight-intro">
+              <span className={`analysis-badge ${insightData?.mode === "ai" ? "is-ai" : ""}`}>
+                {insightData?.mode === "ai" ? "AI-assisted analysis" : "Automated impact preview"}
+              </span>
+              <p>Practical implications drawn from current official records, with confirmed facts kept separate from cautious inference.</p>
+              {insightData && <small>Analysis generated {formatDate(insightData.generatedAt)} · refreshed when official records change</small>}
+            </div>
+          </div>
+
+          {insightState === "loading" && !insightData ? (
+            <div className="insight-loading" role="status"><span className="loading-mark" aria-hidden="true" /><strong>Analyzing current local impacts…</strong><span>Checking what may change, who could be affected, and what residents can do.</span></div>
+          ) : insightData && insightData.insights.length > 0 ? (
+            <div className={`insight-grid ${insightState === "loading" ? "is-refreshing" : ""}`} aria-busy={insightState === "loading"}>
+              {insightData.insights.map((insight, index) => (
+                <article className={`insight-card level-${insight.impactLevel} city-accent-${insight.communityId}`} key={insight.itemId}>
+                  <div className="insight-rank"><span>{String(index + 1).padStart(2, "0")}</span><span>{communityName(insight.communityId)}</span></div>
+                  <div className="impact-meta"><span>{insight.impactLevel}</span><span>{insight.confidence} source detail</span></div>
+                  <h3>{insight.impact}</h3>
+                  <dl className="impact-facts">
+                    <div><dt>Who</dt><dd>{insight.affected}</dd></div>
+                    <div><dt>When</dt><dd>{insight.timing}</dd></div>
+                    <div><dt>Best move</dt><dd>{insight.action}</dd></div>
+                  </dl>
+                  <details className="analysis-details">
+                    <summary>See the evidence and reasoning</summary>
+                    <div><strong>Confirmed by source</strong><p>{insight.confirmedFact}</p></div>
+                    <div><strong>{insightData.mode === "ai" ? "AI assessment" : "Planning inference"}</strong><p>{insight.inference}</p></div>
+                    <div><strong>What we don&apos;t know</strong><p>{insight.unknown}</p></div>
+                  </details>
+                  <a className="insight-source" href={insight.sourceUrl}>Verify with {insight.sourceName} <span aria-hidden="true">↗</span></a>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="insight-loading"><strong>Impact analysis is temporarily unavailable.</strong><span>The official updates and source links below remain current and usable.</span></div>
+          )}
+          <p className="insight-disclaimer">{insightData?.disclaimer ?? "Analysis never replaces official instructions or emergency alerts."}</p>
+        </div>
+      </section>
 
       <section id="today" className="shell section-block today-section" aria-labelledby="today-updates-title">
         <div className="section-heading"><div><p className="kicker">Your daily briefing</p><h2 id="today-updates-title">What affects you now</h2></div><p>Recent official notices, prioritized for a quick scan.</p></div>
@@ -323,7 +406,7 @@ export default function Home() {
       </main>
 
       <footer className="site-footer"><div className="shell footer-inner"><div><strong>Tri-Cities Compass</strong><p>Independent civic utility for Geneva, Batavia, and St. Charles, Illinois.</p></div><div className="footer-links"><a href="#today">Today</a><a href="#services">Resident shortcuts</a><a href="#sources">Source policy</a></div><p className="footer-note">Official-source excerpts · Visible freshness · Call 911 for emergencies</p></div></footer>
-      <nav className="mobile-nav" aria-label="Mobile page sections"><a href="#today"><span>●</span>Today</a><a href="#week"><span>◇</span>Events</a><a href="#services"><span>↗</span>Services</a><a href="#sources"><span>✓</span>Sources</a></nav>
+      <nav className="mobile-nav" aria-label="Mobile page sections"><a href="#insights"><span>✦</span>Insights</a><a href="#today"><span>●</span>Today</a><a href="#week"><span>◇</span>Events</a><a href="#services"><span>↗</span>Services</a></nav>
     </>
   );
 }

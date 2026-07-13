@@ -45,7 +45,7 @@ For Publishing, choose a web-server deployment such as Autoscale and use:
 - Build command: `npm run build`
 - Run command: `npm run start`
 
-The current application does not require environment variables, a database, or persistent storage. Its server must be allowed to make outbound HTTPS requests to the configured official sources.
+The official-data experience does not require a database or persistent storage. Its server must be allowed to make outbound HTTPS requests to the configured official sources. Add `OPENAI_API_KEY` to enable AI-assisted resident analysis.
 
 ## Live sources
 
@@ -55,6 +55,12 @@ The current application does not require environment variables, a database, or p
 - St. Charles City News & Alerts and City Events listings
 
 The API applies request timeouts, response-size limits, per-source failure isolation, balanced community caps, visible retrieval timestamps, and direct canonical links. When one source fails, other communities remain available and the source-health section reports the partial state.
+
+## Resident impact briefing
+
+`/api/insights` adds an evidence-bound interpretation layer over current official records. It returns up to three practical resident impacts with confirmed facts, cautious inference, affected groups, timing, one action, uncertainty, confidence, and the canonical official source.
+
+Set `OPENAI_API_KEY` to enable AI-assisted analysis. `OPENAI_INSIGHT_MODEL` defaults to `gpt-5.6-terra`, and `AI_DAILY_CALL_LIMIT` defaults to 40. Without a key, the route returns a clearly labeled rules-based planning preview so the official-data experience remains usable. Model output uses a strict JSON schema, an eight-second timeout, source allowlisting by item ID, output-length caps, deterministic confirmed facts/actions/severity, and a high-risk exclusion path. D1 provides fingerprinted caching, an in-flight lock, and a daily call circuit breaker so public traffic cannot create unbounded model usage.
 
 ## Product direction
 
