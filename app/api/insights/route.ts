@@ -1,4 +1,4 @@
-import { getLiveDataPayload } from "../../../lib/live-data";
+import { getResidentLiveData } from "../../../lib/live-service";
 import {
   claimInsightGeneration,
   readInsightCache,
@@ -16,8 +16,8 @@ export async function GET(request: Request) {
   if (!scopes.has(requested as InsightScope)) {
     return Response.json({ error: "Unsupported community" }, { status: 400 });
   }
-  const liveData = await getLiveDataPayload();
-  if (liveData.notices.length + liveData.events.length === 0) {
+  const liveData = await getResidentLiveData();
+  if (!liveData || liveData.notices.length + liveData.events.length === 0) {
     return Response.json({ error: "No current official records are available for analysis" }, { status: 503 });
   }
   const scope = requested as InsightScope;

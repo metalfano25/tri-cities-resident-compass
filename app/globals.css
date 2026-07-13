@@ -119,6 +119,11 @@ h3 { font-size: 1.25rem; font-weight: 760; letter-spacing: -.025em; line-height:
 .card-labels { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem .7rem; margin-bottom: .8rem; color: var(--muted); font-size: .69rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
 .type-label { color: var(--ink); }
 .live-label { padding: .2rem .5rem; border-radius: 999px; background: #e2f5ee; color: #116a53; }
+.lifecycle-label { padding: .2rem .5rem; border-radius: 999px; background: #eef2f0; color: #52615c; }
+.lifecycle-active { background: #dff5eb; color: #126747; }
+.lifecycle-ending-soon { background: #fff0c9; color: #765607; }
+.lifecycle-upcoming { background: #e7efff; color: #315d9a; }
+.lifecycle-unknown { background: #eef2f0; color: #52615c; }
 .card-copy { display: -webkit-box; overflow: hidden; margin: .7rem 0; color: #40514b; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .priority-card .card-copy { max-width: 44rem; -webkit-line-clamp: 4; }
 .source-line { display: flex; flex-wrap: wrap; gap: .25rem .45rem; margin: .75rem 0; color: var(--muted); font-size: .72rem; }

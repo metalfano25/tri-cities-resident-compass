@@ -4,14 +4,15 @@ import test from "node:test";
 const codexPreviewMeta =
   /<meta(?=[^>]*\bname=["']codex-preview["'])[^>]*>/i;
 
-async function render(path = "/", environment = {}) {
+async function render(path = "/", environment = {}, init = {}) {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
 
   return worker.fetch(
     new Request(`http://localhost${path}`, {
-      headers: { accept: "text/html" },
+      ...init,
+      headers: { accept: "text/html", ...(init.headers ?? {}) },
     }),
     {
       ASSETS: {
@@ -30,6 +31,9 @@ function createMockDb() {
   const cache = new Map();
   const locks = new Set();
   const usage = new Map();
+  let livePayload = null;
+  let ingestionLocked = false;
+  const sourceRuns = [];
   const prepare = (sql) => {
     let values = [];
     const statement = {
@@ -39,7 +43,29 @@ function createMockDb() {
           const row = cache.get(values[0]);
           return row && row.expiresAt > values[1] ? { payload: row.payload } : null;
         }
+        if (sql.startsWith("SELECT payload, created_at, last_successful_at FROM live_payload_cache")) {
+          return livePayload;
+        }
+        if (sql.startsWith("SELECT last_successful_collection FROM source_runs")) {
+          const row = [...sourceRuns].reverse().find((item) => item.sourceId === values[0] && item.lastSuccessfulAt);
+          return row ? { last_successful_collection: row.lastSuccessfulAt } : null;
+        }
         return null;
+      },
+      async all() {
+        if (sql.startsWith("SELECT source_id, status, completed_at, last_successful_collection FROM")) {
+          const latest = new Map();
+          for (const row of sourceRuns) latest.set(row.sourceId, row);
+          return {
+            results: [...latest.values()].map((row) => ({
+              source_id: row.sourceId,
+              status: row.status,
+              completed_at: row.completedAt,
+              last_successful_collection: row.lastSuccessfulAt,
+            })),
+          };
+        }
+        return { results: [] };
       },
       async run() {
         if (sql.startsWith("INSERT OR IGNORE INTO insight_locks")) {
@@ -60,6 +86,26 @@ function createMockDb() {
         }
         if (sql.startsWith("INSERT INTO insight_cache")) {
           cache.set(values[0], { payload: values[1], expiresAt: values[3] });
+          return { meta: { changes: 1 } };
+        }
+        if (sql.startsWith("INSERT INTO ingestion_locks")) {
+          if (ingestionLocked) return { meta: { changes: 0 } };
+          ingestionLocked = true;
+          return { meta: { changes: 1 } };
+        }
+        if (sql.startsWith("UPDATE ingestion_locks SET expires_at = 0")) {
+          ingestionLocked = false;
+          return { meta: { changes: 1 } };
+        }
+        if (sql.startsWith("INSERT INTO source_runs")) {
+          sourceRuns.push({ sourceId: values[1], completedAt: values[6], status: values[7], lastSuccessfulAt: values[11] });
+          return { meta: { changes: 1 } };
+        }
+        if (sql.startsWith("INSERT INTO live_payload_cache")) {
+          livePayload = { payload: values[1], created_at: values[2], last_successful_at: values[3] };
+          return { meta: { changes: 1 } };
+        }
+        if (sql.startsWith("INSERT INTO source_records") || sql.startsWith("INSERT OR IGNORE INTO record_versions")) {
           return { meta: { changes: 1 } };
         }
         return { meta: { changes: 0 } };
@@ -155,8 +201,11 @@ test("normalizes live official sources for all three communities", async () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = process.env.OPENAI_API_KEY;
   const originalDailyLimit = process.env.AI_DAILY_CALL_LIMIT;
+  const originalIngestSecret = process.env.INGEST_SECRET;
   let modelCalls = 0;
   let modelRecordTitles = [];
+  let sourceFetches = 0;
+  let failGeneva = false;
   const recent = new Date(Date.now() - 86_400_000);
   const future = new Date(Date.now() + 3 * 86_400_000);
   const futureEnd = new Date(future.getTime() + 3_600_000);
@@ -191,6 +240,10 @@ test("normalizes live official sources for all three communities", async () => {
       }));
       return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ insights }) }] }] });
     }
+    sourceFetches += 1;
+    if (failGeneva && url.includes("geneva.il.us/RSSFeed")) {
+      return new Response("temporary upstream failure", { status: 500 });
+    }
     if (url.includes("Geneva-Special-Events")) return new Response(rssEvent, { status: 200 });
     if (url.includes("geneva.il.us/RSSFeed")) return new Response(rssNotice(url.includes("Road-Construction") ? "Geneva road update" : "Geneva city update"), { status: 200 });
     if (url.includes("generate_ical")) return new Response(ics("Batavia city event", "batavia-city-1"), { status: 200 });
@@ -202,7 +255,16 @@ test("normalizes live official sources for all three communities", async () => {
   };
 
   try {
-    const response = await render("/api/live");
+    process.env.INGEST_SECRET = "test-ingest-secret";
+    const insightDb = createMockDb();
+    const ingestion = await render("/api/ingest", { DB: insightDb }, {
+      method: "POST",
+      headers: { authorization: "Bearer test-ingest-secret" },
+    });
+    assert.equal(ingestion.status, 200);
+    const sourceFetchesAfterIngestion = sourceFetches;
+
+    const response = await render("/api/live", { DB: insightDb });
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-type") ?? "", /^application\/json\b/i);
     const payload = await response.json();
@@ -213,13 +275,15 @@ test("normalizes live official sources for all three communities", async () => {
     }
     assert.ok(payload.sources.every((source) => source.state === "ok"));
 
-    const noKeyResponse = await render("/api/insights?community=all", { DB: createMockDb() });
+    assert.equal(sourceFetches, sourceFetchesAfterIngestion, "public live reads must use the stored D1 snapshot");
+
+    const noKeyResponse = await render("/api/insights?community=all", { DB: insightDb });
     assert.equal(noKeyResponse.status, 200);
     assert.equal((await noKeyResponse.json()).mode, "rules");
+    assert.equal(sourceFetches, sourceFetchesAfterIngestion, "rules insights must not re-fetch upstream sources");
 
     process.env.OPENAI_API_KEY = "test-key";
     process.env.AI_DAILY_CALL_LIMIT = "1";
-    const insightDb = createMockDb();
     const insightResponse = await render("/api/insights?community=all", { DB: insightDb });
     assert.equal(insightResponse.status, 200);
     const insightPayload = await insightResponse.json();
@@ -234,15 +298,32 @@ test("normalizes live official sources for all three communities", async () => {
     const cachedResponse = await render("/api/insights?community=all", { DB: insightDb });
     assert.equal((await cachedResponse.json()).mode, "ai");
     assert.equal(modelCalls, 1, "identical insight requests should use the durable cache");
+    assert.equal(sourceFetches, sourceFetchesAfterIngestion, "cached insight requests must not re-fetch upstream sources");
 
     const budgetResponse = await render("/api/insights?community=geneva", { DB: insightDb });
     assert.equal((await budgetResponse.json()).mode, "rules");
     assert.equal(modelCalls, 1, "daily circuit breaker should prevent another model call");
+    assert.equal(sourceFetches, sourceFetchesAfterIngestion, "new insight scopes must reuse the same D1 live snapshot");
+
+    failGeneva = true;
+    const partialIngestion = await render("/api/ingest", { DB: insightDb }, {
+      method: "POST",
+      headers: { authorization: "Bearer test-ingest-secret" },
+    });
+    assert.equal(partialIngestion.status, 200);
+    const partialRefresh = await render("/api/live", { DB: insightDb });
+    assert.equal(partialRefresh.status, 200);
+    const partialPayload = await partialRefresh.json();
+    assert.equal(partialPayload.mode, "partial");
+    assert.ok(partialPayload.notices.some((item) => item.communityId === "geneva"), "last-good Geneva records must survive a source failure");
+    assert.equal(partialPayload.cache.stale, true, "a failed source must make cached freshness visibly stale");
   } finally {
     globalThis.fetch = originalFetch;
     if (originalApiKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = originalApiKey;
     if (originalDailyLimit === undefined) delete process.env.AI_DAILY_CALL_LIMIT;
     else process.env.AI_DAILY_CALL_LIMIT = originalDailyLimit;
+    if (originalIngestSecret === undefined) delete process.env.INGEST_SECRET;
+    else process.env.INGEST_SECRET = originalIngestSecret;
   }
 });

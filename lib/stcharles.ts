@@ -8,6 +8,8 @@ import type {
 
 const EVENTS_URL = "https://www.stcharlesil.gov/News-Events/City-Events";
 const NEWS_URL = "https://www.stcharlesil.gov/News-Events/City-News-Alerts";
+const EVENTS_SOURCE_ID = "st-charles-events";
+const NEWS_SOURCE_ID = "st-charles-news";
 const SOURCE_NAME = "City of St. Charles";
 const USER_AGENT =
   "TriCitiesResidentCompass/1.0 (+https://github.com/metalfano25/tri-cities-resident-compass; official-public-data-reader)";
@@ -172,6 +174,7 @@ export function parseStCharlesEvents(html: string, fetchedAt: string): LiveEvent
 
     parsed.push({
       id: identifier(canonical, date),
+      sourceId: EVENTS_SOURCE_ID,
       communityId: "st-charles",
       title,
       summary,
@@ -225,6 +228,7 @@ export function parseStCharlesNews(html: string, fetchedAt: string): LiveNotice[
 
     parsed.push({
       id: identifier(canonical),
+      sourceId: NEWS_SOURCE_ID,
       communityId: "st-charles",
       kind: noticeKind(title, summary),
       title,
@@ -279,6 +283,7 @@ function sourceStatus(
     const reason = result.reason instanceof Error ? result.reason.message : "source request failed";
     return {
       id,
+      sourceId: id,
       communityId: "st-charles",
       name,
       url,
@@ -291,6 +296,7 @@ function sourceStatus(
 
   return {
     id,
+    sourceId: id,
     communityId: "st-charles",
     name,
     url,
@@ -315,8 +321,8 @@ export async function fetchStCharlesData(): Promise<CommunityLiveResult> {
     notices,
     events,
     sources: [
-      sourceStatus("st-charles-events", "St. Charles City Events", EVENTS_URL, fetchedAt, eventsResult),
-      sourceStatus("st-charles-news", "St. Charles City News & Alerts", NEWS_URL, fetchedAt, newsResult),
+      sourceStatus(EVENTS_SOURCE_ID, "St. Charles City Events", EVENTS_URL, fetchedAt, eventsResult),
+      sourceStatus(NEWS_SOURCE_ID, "St. Charles City News & Alerts", NEWS_URL, fetchedAt, newsResult),
     ],
   };
 }

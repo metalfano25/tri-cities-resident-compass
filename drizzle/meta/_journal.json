@@ -8,6 +8,13 @@
       "when": 1783913501354,
       "tag": "0000_secret_garia",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1783964064243,
+      "tag": "0001_dusty_aaron_stack",
+      "breakpoints": true
     }
   ]
 }

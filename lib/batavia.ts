@@ -11,6 +11,7 @@ const USER_AGENT =
   "Tri-Cities-Resident-Compass/1.0 (+https://github.com/metalfano25/tri-cities-resident-compass; public-community-data)";
 const MAX_RESPONSE_BYTES = 2_000_000;
 const REQUEST_TIMEOUT_MS = 7_000;
+const DEFAULT_TIMED_EVENT_DURATION_MS = 3 * 60 * 60 * 1_000;
 
 const CITY_EVENTS = {
   id: "batavia-city-events",
@@ -160,6 +161,14 @@ function parseIcsDate(rawValue: string, parameters: string): IcsDate {
   };
 }
 
+function chicagoMidnight(isoDate: string, dayOffset = 0): number | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return undefined;
+  const date = new Date(`${isoDate}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + dayOffset);
+  const compact = `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}T000000`;
+  return parseIcsDate(compact, "TZID=America/Chicago").timestamp;
+}
+
 function eventDateLabels(start: IcsDate): { dateLabel: string; timeLabel: string } {
   if (!start.iso || start.timestamp === undefined) {
     return { dateLabel: "See source", timeLabel: "See source" };
@@ -216,7 +225,15 @@ export function parseIcsEvents(
     const end = endEntry
       ? parseIcsDate(endEntry.value, endEntry.parameters)
       : { allDay: start.allDay };
-    const futureBoundary = end.timestamp ?? start.timestamp;
+    const futureBoundary = end.iso && end.allDay
+      ? chicagoMidnight(end.iso)
+      : end.timestamp ?? (
+          start.iso && start.allDay
+            ? chicagoMidnight(start.iso, 1)
+            : start.timestamp === undefined
+              ? undefined
+              : start.timestamp + DEFAULT_TIMED_EVENT_DURATION_MS
+        );
     if (futureBoundary === undefined || futureBoundary < referenceTime - 60_000) return [];
 
     const description = cleanText(unescapeIcs(first("DESCRIPTION")?.value ?? ""));
@@ -243,6 +260,7 @@ export function parseIcsEvents(
     return [
       {
         id: `${source.id ?? "batavia-ics"}-${hash(uid || `${summary}|${start.iso}`)}`,
+        sourceId: source.id ?? "batavia-ics",
         communityId: COMMUNITY_ID,
         title: summary,
         summary: description || `See the official listing for ${summary}.`,
@@ -250,6 +268,7 @@ export function parseIcsEvents(
         sourceName: source.sourceName,
         startAt: start.iso,
         endAt: end.iso,
+        endAtExclusive: Boolean(endEntry && start.allDay && end.allDay),
         dateLabel: labels.dateLabel,
         timeLabel: labels.timeLabel,
         location: location || "See official listing",
@@ -314,6 +333,7 @@ export function parseBataviaLiveFeedHtml(html: string, fetchedAt: string): LiveN
     hydrationSeen.add(id);
     hydrationCandidates.push({
       id: `batavia-live-${id}`,
+      sourceId: CITY_LIVE_FEED.id,
       communityId: COMMUNITY_ID,
       kind: noticeKind(noticeText),
       title: titleFromNotice(noticeText),
@@ -368,6 +388,7 @@ export function parseBataviaLiveFeedHtml(html: string, fetchedAt: string): LiveN
     seen.add(id);
     candidates.push({
       id: `batavia-live-${id}`,
+      sourceId: CITY_LIVE_FEED.id,
       communityId: COMMUNITY_ID,
       kind: noticeKind(text),
       title: titleFromNotice(text),
@@ -433,6 +454,7 @@ function sourceStatus(
 ): LiveSourceStatus {
   return {
     id: source.id,
+    sourceId: source.id,
     communityId: COMMUNITY_ID,
     name: source.sourceName,
     url: source.sourceUrl,

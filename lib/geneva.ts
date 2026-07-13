@@ -221,6 +221,7 @@ function statusFor(
   const feed = FEEDS[kind];
   return {
     id: feed.id,
+    sourceId: feed.id,
     communityId: "geneva",
     name: feed.name,
     url: feed.url,
@@ -247,12 +248,14 @@ export function parseGenevaRss(
     const events: LiveEvent[] = parsed
       .filter((item) => {
         const start = item.startAt ? Date.parse(item.startAt) : Number.NaN;
-        return Number.isFinite(start) && (!Number.isFinite(cutoff) || start >= cutoff - 86_400_000);
+        const end = item.endAt ? Date.parse(item.endAt) : start;
+        return Number.isFinite(start) && Number.isFinite(end) && (!Number.isFinite(cutoff) || end >= cutoff - 86_400_000);
       })
       .sort((a, b) => Date.parse(a.startAt ?? "") - Date.parse(b.startAt ?? ""))
       .slice(0, 4)
       .map((item) => ({
         id: stableId("geneva-event", item.guid),
+        sourceId: feed.id,
         communityId: "geneva",
         title: item.title,
         summary: shorten(item.description) || "See the official City of Geneva listing for details.",
@@ -278,7 +281,7 @@ export function parseGenevaRss(
           itemXml.length === 0
             ? "The feed contained no items."
             : events.length === 0
-              ? "No future events with a parseable date were found."
+              ? "No current or future events with a parseable date were found."
               : undefined,
         ),
       ],
@@ -287,6 +290,7 @@ export function parseGenevaRss(
 
   const notices: LiveNotice[] = parsed.slice(0, 4).map((item) => ({
     id: stableId(`geneva-${kind}`, item.guid),
+    sourceId: feed.id,
     communityId: "geneva",
     kind: feed.itemKind,
     title: item.title,

@@ -21,6 +21,26 @@ const filters: Array<{ id: CommunityFilter; label: string }> = [
 const communityName = (id: CommunityId) =>
   communities.find((item) => item.id === id)?.shortName ?? id;
 
+const lifecycleLabel = (item: LiveNotice | LiveEvent) => {
+  switch (item.lifecycle) {
+    case "active": return "Active";
+    case "ending-soon": return "Ending soon";
+    case "upcoming": return "Upcoming";
+    case "unknown": return "Recently published";
+    default: return "Official record";
+  }
+};
+
+const eventDateBadge = (event: LiveEvent) => {
+  if (event.lifecycle === "active" || event.lifecycle === "ending-soon") {
+    return { top: "Now", bottom: "→" };
+  }
+  return {
+    top: event.dateLabel.split(" ")[0],
+    bottom: event.dateLabel.match(/\d+/)?.[0] ?? "—",
+  };
+};
+
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat("en-US", {
     month: "short",
@@ -72,8 +92,8 @@ function DataState({ state, message, onRetry }: {
     return (
       <div className="data-state" role="status">
         <span className="loading-mark" aria-hidden="true" />
-        <strong>Refreshing official sources…</strong>
-        <span>Checking city feeds, calendars, and public listings.</span>
+        <strong>Refreshing the verified snapshot…</strong>
+        <span>Checking the latest stored official-source collection.</span>
       </div>
     );
   }
@@ -186,13 +206,15 @@ export default function Home() {
     (item) => community === "all" || item.communityId === community,
   );
   const healthySources = liveData?.sources.filter((source) => source.state === "ok").length ?? 0;
-  const modeLabel = liveData?.mode === "live"
-    ? "All systems current"
-    : liveData?.mode === "partial"
-      ? "Some sources unavailable"
-      : loadState === "loading"
-        ? "Scanning official sources"
-        : "Live refresh unavailable";
+  const modeLabel = liveData?.cache?.stale
+    ? "Using last verified data"
+    : liveData?.mode === "live"
+      ? "All systems current"
+      : liveData?.mode === "partial"
+        ? "Some sources unavailable"
+        : loadState === "loading"
+          ? "Scanning official sources"
+          : "Live refresh unavailable";
 
   function selectCommunity(next: CommunityFilter) {
     setCommunity(next);
@@ -218,10 +240,10 @@ export default function Home() {
             <button
               className="refresh-button"
               type="button"
-              onClick={loadLiveData}
+              onClick={() => void loadLiveData()}
               disabled={loadState === "loading"}
               aria-busy={loadState === "loading"}
-              aria-label={loadState === "loading" ? "Refreshing official sources" : "Refresh official sources"}
+              aria-label={loadState === "loading" ? "Refreshing verified data" : "Refresh verified data"}
             >
               <span aria-hidden="true">↻</span><span className="refresh-label">{loadState === "loading" ? "Refreshing…" : "Refresh"}</span>
             </button>
@@ -248,7 +270,7 @@ export default function Home() {
               </fieldset>
               <p className="result-summary" aria-live="polite" aria-atomic="true">
                 {loadState === "ready"
-                  ? `${visibleNotices.length} current updates for ${selectedLabel}. Checked ${formatDate(liveData!.generatedAt)}.`
+                  ? `${visibleNotices.length} recent official notices for ${selectedLabel}. Checked ${formatDate(liveData!.generatedAt)}.`
                   : loadState === "loading"
                     ? `Checking official sources for ${selectedLabel}.`
                     : `Live refresh is unavailable for ${selectedLabel}.`}
@@ -258,12 +280,12 @@ export default function Home() {
             <aside className="signal-panel" aria-label="Live briefing totals">
               <div className="signal-panel-head"><span>Live across the Tri-Cities</span><strong>{modeLabel}</strong></div>
               <div className="metric-grid">
-                <div><strong>{liveData?.notices.length ?? "—"}</strong><span>Updates</span></div>
+                <div><strong>{liveData?.notices.length ?? "—"}</strong><span>Notices</span></div>
                 <div><strong>{liveData ? visibleEvents.length : "—"}</strong><span>Events</span></div>
                 <div><strong>{liveData ? visibleMeetings.length : "—"}</strong><span>Meetings</span></div>
                 <div><strong>{healthySources}/{liveData?.sources.length ?? "—"}</strong><span>Sources healthy</span></div>
               </div>
-              <p>Independent civic utility. Always confirm urgent details with the linked agency.</p>
+              <p>{liveData?.cache?.stale ? "One or more sources are stale; last verified records remain visible." : "Independent civic utility. Always confirm urgent details with the linked agency."}</p>
             </aside>
           </section>
         </div>
@@ -316,7 +338,7 @@ export default function Home() {
       </section>
 
       <section id="today" className="shell section-block today-section" aria-labelledby="today-updates-title">
-        <div className="section-heading"><div><p className="kicker">Your daily briefing</p><h2 id="today-updates-title">What affects you now</h2></div><p>Recent official notices, prioritized for a quick scan.</p></div>
+        <div className="section-heading"><div><p className="kicker">Your daily briefing</p><h2 id="today-updates-title">What changed recently</h2></div><p>Official notices with effective dates separated from recently published records.</p></div>
         <div className="briefing-layout">
           <div>
             {loadState !== "ready" && !liveData ? (
@@ -327,7 +349,7 @@ export default function Home() {
               <div className={`today-grid ${loadState === "loading" ? "is-refreshing" : ""}`} aria-busy={loadState === "loading"}>
                 {visibleNotices.map((update, index) => (
                   <article className={`update-card city-accent-${update.communityId} ${index === 0 ? "priority-card" : ""}`} key={update.id} style={{ "--delay": `${Math.min(index, 5) * 45}ms` } as React.CSSProperties}>
-                    <div className="card-labels"><span className="type-label">{update.kind.replace("-", " ")}</span><span>{communityName(update.communityId)}</span><span className="live-label">Official notice</span></div>
+                    <div className="card-labels"><span className="type-label">{update.kind.replace("-", " ")}</span><span>{communityName(update.communityId)}</span><span className={`lifecycle-label lifecycle-${update.lifecycle ?? "unknown"}`}>{lifecycleLabel(update)}</span></div>
                     <h3>{update.title}</h3>
                     <p className="card-copy">{update.summary}</p>
                     <LiveSourceLine item={update} />
@@ -351,16 +373,17 @@ export default function Home() {
 
       <section id="week" className="section-dark" aria-labelledby="week-title">
         <div className="shell section-block">
-          <div className="section-heading"><div><p className="kicker">Next on the river</p><h2 id="week-title">The next two weeks</h2></div><p>Events and public meetings from official local calendars.</p></div>
+          <div className="section-heading"><div><p className="kicker">Next on the river</p><h2 id="week-title">Now and next two weeks</h2></div><p>Ongoing and upcoming events from official local calendars.</p></div>
           {liveData && visibleEvents.length > 0 ? (
             <div className={`event-list ${loadState === "loading" ? "is-refreshing" : ""}`} aria-busy={loadState === "loading"}>
-              {visibleEvents.map((event) => (
-                <article className={`event-row city-accent-${event.communityId}`} key={event.id}>
-                  <div className="event-date" aria-hidden="true"><span>{event.dateLabel.split(" ")[0]}</span><strong>{event.dateLabel.match(/\d+/)?.[0] ?? "—"}</strong></div>
-                  <div className="event-details"><div className="card-labels"><span>{communityName(event.communityId)}</span><span className="live-label">Official calendar</span></div><h3>{event.title}</h3><p className="event-meta">{event.dateLabel} · {event.timeLabel}</p><p>{event.location}</p><LiveSourceLine item={event} /></div>
+              {visibleEvents.map((event) => {
+                const badge = eventDateBadge(event);
+                return <article className={`event-row city-accent-${event.communityId}`} key={event.id}>
+                  <div className="event-date" aria-hidden="true"><span>{badge.top}</span><strong>{badge.bottom}</strong></div>
+                  <div className="event-details"><div className="card-labels"><span>{communityName(event.communityId)}</span><span className={`lifecycle-label lifecycle-${event.lifecycle ?? "unknown"}`}>{lifecycleLabel(event)}</span></div><h3>{event.title}</h3><p className="event-meta">{event.timingLabel ?? `${event.dateLabel} · ${event.timeLabel}`}</p><p>{event.location}</p><LiveSourceLine item={event} /></div>
                   <a className="row-link" href={event.canonicalUrl} aria-label={`View official event: ${event.title}`}>View event <span aria-hidden="true">↗</span></a>
-                </article>
-              ))}
+                </article>;
+              })}
             </div>
           ) : !liveData && loadState === "error" ? <DataState state={loadState} message={loadMessage} onRetry={loadLiveData} /> : <div className="data-state"><strong>{!liveData && loadState === "loading" ? "Loading upcoming events…" : "No upcoming events were returned."}</strong></div>}
         </div>
@@ -372,7 +395,7 @@ export default function Home() {
           <div className={`meeting-grid ${loadState === "loading" ? "is-refreshing" : ""}`} aria-busy={loadState === "loading"}>
             {visibleMeetings.map((meeting) => (
               <article className={`meeting-card city-accent-${meeting.communityId}`} key={meeting.id}>
-                <div className="card-labels"><span>{communityName(meeting.communityId)}</span><span className="live-label">Official calendar</span></div>
+                <div className="card-labels"><span>{communityName(meeting.communityId)}</span><span className={`lifecycle-label lifecycle-${meeting.lifecycle ?? "upcoming"}`}>{lifecycleLabel(meeting)}</span></div>
                 <h3>{meeting.title}</h3>
                 <dl className="meeting-facts"><div><dt>When</dt><dd>{meeting.dateLabel}, {meeting.timeLabel}</dd></div><div><dt>Where</dt><dd>{meeting.location}</dd></div></dl>
                 <LiveSourceLine item={meeting} />
@@ -398,7 +421,11 @@ export default function Home() {
       <section id="sources" className="shell section-block source-explainer" aria-labelledby="sources-title">
         <div><p className="kicker">Signal integrity</p><h2 id="sources-title">A compass,<br />not the source of record.</h2></div>
         <div className="explainer-copy"><p>This independent service reads public RSS, iCal, and municipal listings from Geneva, Batavia, St. Charles, and their public agencies. It is not operated by those agencies and is not an emergency alert replacement.</p><p>We retain short factual excerpts and canonical links—not full articles or agency images. The linked agency remains authoritative for accuracy, cancellations, eligibility, and current conditions.</p>
-          {liveData && <ul className="source-health" aria-label="Live source status">{liveData.sources.map((source) => <li key={source.id}><span className={`health-dot health-${source.state}`} aria-hidden="true" /><a href={source.url}>{source.name}</a><span>{source.itemCount} items · {source.state}</span></li>)}</ul>}
+          {liveData && <ul className="source-health" aria-label="Live source status">{liveData.sources.map((source) => {
+            const freshness = liveData.cache?.sources.find((item) => item.sourceId === source.id);
+            const label = freshness?.stale ? "stale—last verified data retained" : source.state;
+            return <li key={source.id}><span className={`health-dot health-${freshness?.stale ? "failed" : source.state}`} aria-hidden="true" /><a href={source.url}>{source.name}</a><span>{source.itemCount} items · {label}</span></li>;
+          })}</ul>}
         </div>
       </section>
 

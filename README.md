@@ -7,7 +7,7 @@ The site brings together clearly attributed city notices, public works updates, 
 ## Important status
 
 - This is an independent prototype, not a government website.
-- Current cards are fetched from public official sources when the page loads.
+- Current cards are read from the most recent verified server-side snapshot; resident page loads never collect from upstream publishers.
 - The site is an aggregator, not a real-time or guaranteed-complete alert service.
 - It is not an emergency alert replacement. Call 911 for emergencies.
 - Exact dates, eligibility, cancellations, and current conditions must be verified at the linked official source.
@@ -45,7 +45,7 @@ For Publishing, choose a web-server deployment such as Autoscale and use:
 - Build command: `npm run build`
 - Run command: `npm run start`
 
-The official-data experience does not require a database or persistent storage. Its server must be allowed to make outbound HTTPS requests to the configured official sources. Add `OPENAI_API_KEY` to enable AI-assisted resident analysis.
+The current production data path requires the configured Sites D1 binding for durable history, last-good source retention, and cache-only public reads. A Replit deployment needs an equivalent durable-store adapter before it can serve live records safely. The ingestion server must be allowed to make outbound HTTPS requests to the configured official sources. Add `OPENAI_API_KEY` to enable AI-assisted resident analysis.
 
 ## Live sources
 
@@ -55,6 +55,12 @@ The official-data experience does not require a database or persistent storage. 
 - St. Charles City News & Alerts and City Events listings
 
 The API applies request timeouts, response-size limits, per-source failure isolation, balanced community caps, visible retrieval timestamps, and direct canonical links. When one source fails, other communities remain available and the source-health section reports the partial state.
+
+## Freshness and durable history
+
+Current records carry explicit lifecycle states instead of relying on publication recency alone. Expired notices and cancelled events are suppressed, undated notices are labeled as recently published, long-running events show their ongoing end date, and supported meeting notices are normalized into the civic meeting collection.
+
+On Sites, D1 stores the last-good live snapshot, normalized records, content versions, source runs, and ingestion locks. `/api/live` and `/api/insights` are cache-only: an empty store returns a safe unavailable state, and even an explicit resident refresh cannot contact upstream publishers. `POST /api/ingest` is the sole collection path and requires a server-side `INGEST_SECRET`; its lease and cooldown prevent overlapping or excessive runs. Configure the secret before the initial collection or connecting an external scheduler.
 
 ## Resident impact briefing
 
@@ -71,5 +77,7 @@ The next production milestone is expanding the permitted official adapters while
 - source-updated and retrieval times;
 - freshness and failure states;
 - balanced coverage across all three communities.
+
+The orchestrated implementation plan, agent roles, release gates, opportunity taxonomy, and six production waves are documented in [`CODING_LOOP.md`](./CODING_LOOP.md).
 
 See the resident-facing source policy in the application before connecting live data.
