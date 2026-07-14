@@ -247,6 +247,12 @@ test("uses Chicago midnight for all-day feeds and notice activation boundaries",
     assert.ok(!afterMidnight.events.some((item) => item.title === "Chicago midnight boundary event"), "all-day event must expire after Chicago midnight");
     assert.ok(!afterMidnight.notices.some((item) => item.title.includes("through July 12")), "notice must expire after its Chicago-local effective day");
     assert.equal(afterMidnight.notices.find((item) => item.title.includes("scheduled on July 13"))?.lifecycle, "active");
+    const emptyCalendar = afterMidnight.sources.find((item) => item.sourceId === "batavia-city-events");
+    assert.equal(emptyCalendar?.state, "ok", "a recognized calendar with no upcoming items is healthy-empty, not a parser failure");
+    assert.equal(emptyCalendar?.itemCount, 0);
+    const emptyCalendarFreshness = afterMidnight.cache.sources.find((item) => item.sourceId === "batavia-city-events");
+    assert.equal(emptyCalendarFreshness?.stale, false, "healthy-empty collection must advance source freshness");
+    assert.ok(emptyCalendarFreshness?.lastSuccessfulAt);
   } finally {
     globalThis.fetch = originalFetch;
     globalThis.Date = RealDate;

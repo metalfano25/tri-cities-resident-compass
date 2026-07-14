@@ -471,6 +471,16 @@ function safeMessage(error: unknown): string {
   return "Source could not be loaded";
 }
 
+function calendarStatus(text: string, itemCount: number): Pick<LiveSourceStatus, "state" | "message"> {
+  const recognizedCalendar = /BEGIN:VCALENDAR\b/i.test(text) && /END:VCALENDAR\b/i.test(text);
+  if (!recognizedCalendar) {
+    return { state: "partial", message: "Calendar response format was not recognized" };
+  }
+  return itemCount > 0
+    ? { state: "ok" }
+    : { state: "ok", message: "Source loaded successfully; no upcoming events" };
+}
+
 /** Fetch all currently supported official Batavia sources independently. */
 export async function fetchBataviaData(): Promise<CommunityLiveResult> {
   const fetchedAt = new Date().toISOString();
@@ -489,14 +499,15 @@ export async function fetchBataviaData(): Promise<CommunityLiveResult> {
   const cityEventsResult = results[0];
   if (cityEventsResult.status === "fulfilled") {
     const items = parseIcsEvents(cityEventsResult.value, CITY_EVENTS, fetchedAt);
+    const status = calendarStatus(cityEventsResult.value, items.length);
     events.push(...items);
     sources.push(
       sourceStatus(
         CITY_EVENTS,
         fetchedAt,
-        items.length > 0 ? "ok" : "partial",
+        status.state,
         items.length,
-        items.length > 0 ? undefined : "Feed loaded but contained no upcoming events",
+        status.message,
       ),
     );
   } else {
@@ -506,14 +517,15 @@ export async function fetchBataviaData(): Promise<CommunityLiveResult> {
   const parkEventsResult = results[1];
   if (parkEventsResult.status === "fulfilled") {
     const items = parseIcsEvents(parkEventsResult.value, PARK_EVENTS, fetchedAt);
+    const status = calendarStatus(parkEventsResult.value, items.length);
     events.push(...items);
     sources.push(
       sourceStatus(
         PARK_EVENTS,
         fetchedAt,
-        items.length > 0 ? "ok" : "partial",
+        status.state,
         items.length,
-        items.length > 0 ? undefined : "Feed loaded but contained no upcoming events",
+        status.message,
       ),
     );
   } else {
