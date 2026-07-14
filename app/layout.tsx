@@ -16,7 +16,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const origin = `${protocol}://${safeHost}`;
   const title = "Tri-Cities Resident Compass";
   const description =
-    "A source-first resident dashboard for Geneva, Batavia, and St. Charles, Illinois.";
+    "Clear local information, useful next steps, and community improvement for Geneva, Batavia, and St. Charles, Illinois.";
 
   return {
     title,
@@ -26,13 +26,13 @@ export async function generateMetadata(): Promise<Metadata> {
       title,
       description,
       type: "website",
-      images: [{ url: `${origin}/og-v2.png`, width: 1731, height: 908, alt: `${title} — Your cities. In signal.` }],
+      images: [{ url: `${origin}/og-simple.png`, width: 1731, height: 908, alt: `${title} — Better local information. Better local lives.` }],
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
-      images: [`${origin}/og-v2.png`],
+      images: [`${origin}/og-simple.png`],
     },
   };
 }

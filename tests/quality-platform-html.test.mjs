@@ -19,31 +19,29 @@ test("server-renders the resident quality-of-life platform and its honest initia
   const html = await response.text();
 
   for (const section of [
-    "Opportunity Center",
-    "Decision Decoder",
-    "Change Map",
+    "Better local information",
+    "What could affect your day",
+    "Ways to make life work better",
+    "Start with what matters to you",
     "Family Compass",
     "Move Better",
-    "Live Well",
-    "Local economy &amp; community needs",
-    "Community Gap Map",
-    "Trust center",
+    "Decision Decoder",
+    "Why this may matter next",
+    "What would make life better here",
+    "Trust &amp; sources",
   ]) {
     assert.match(html, new RegExp(section, "i"), `missing resident-facing section: ${section}`);
   }
 
-  assert.match(html, /Checking for supported opportunities/i);
-  assert.match(html, /A meeting title alone is not enough to claim what will be decided/i);
-  assert.match(html, /No coordinates are inferred/i);
-  assert.match(html, /not a claim that roads or transit are clear/i);
-  assert.match(html, /does not prove commercial demand/i);
+  assert.match(html, /Checking for supported actions/i);
+  assert.match(html, /shown only when current evidence supports a next step/i);
+  assert.match(html, /deeper tools are grouped into three simple paths/i);
   assert.match(html, /never treated as proof of community consensus/i);
   assert.doesNotMatch(html, /Guaranteed savings|Guaranteed opportunity|Guaranteed business demand/i);
 
-  assert.match(html, /<section\b[^>]*\bid=["']opportunities["'][^>]*\baria-labelledby=["']opportunity-title["']/i);
-  assert.match(html, /<section\b[^>]*\bid=["']change-map["'][^>]*\baria-labelledby=["']change-title["']/i);
-  assert.match(html, /<section\b[^>]*\bid=["']gap-map["'][^>]*\baria-labelledby=["']gap-title["']/i);
-  assert.match(html, /<div\b[^>]*\brole=["']status["'][^>]*>[^<]*(?:<[^>]+>)*[^<]*Checking for supported opportunities/i);
+  assert.match(html, /<section\b[^>]*\bid=["']actions["'][^>]*\baria-labelledby=["']actions-title["']/i);
+  assert.match(html, /<section\b[^>]*\bid=["']improve["'][^>]*\baria-labelledby=["']improve-title["']/i);
+  assert.match(html, /<div\b[^>]*\brole=["']status["'][^>]*>[^<]*(?:<[^>]+>)*[^<]*Checking for supported actions/i);
 });
 
 test("community gap intake has explicit limits, labels, moderation status, and privacy guidance", async () => {
@@ -59,7 +57,7 @@ test("community gap intake has explicit limits, labels, moderation status, and p
   assert.match(html, /<p\b[^>]*\brole=["']status["'][^>]*\baria-live=["']polite["']/i);
   assert.match(html, /not a home address/i);
   assert.match(html, /Do not include names, health details, or other personal information/i);
-  assert.match(html, /Submit for moderation/i);
+  assert.match(html, /Share for review/i);
 });
 
 test("the visually hidden community radios expose focus on their visible chips", async () => {

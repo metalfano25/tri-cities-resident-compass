@@ -147,9 +147,9 @@ test("server-renders the complete resident-facing MVP", async () => {
     /<title>[^<]*(?:Your site is taking shape|Starter Project)[^<]*<\/title>/i,
   );
 
-  assert.match(html, /(?:What affects (?:me|you) (?:today|now)|Your cities\.\s*In signal|Make local life\s*work better)/i);
+  assert.match(html, /(?:What affects (?:me|you) (?:today|now)|Your cities\.\s*In signal|Make local life\s*work better|Better local information\.\s*Better local lives)/i);
   assert.match(html, />\s*Today\s*</i);
-  assert.match(html, /(?:Opportunity Center|>\s*This week\s*<)/i);
+  assert.match(html, /(?:Opportunity Center|>\s*This week\s*<|Ways to make life work better)/i);
   assert.match(html, /(?:Live Well|Resident shortcuts|Fast paths to local help)/i);
 
   assert.match(html, /Geneva/i);
