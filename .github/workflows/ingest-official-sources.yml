@@ -1,0 +1,34 @@
+name: Refresh official-source snapshot
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: official-source-ingestion
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Collect and validate official sources
+        env:
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+          SITES_BYPASS_TOKEN: ${{ secrets.SITES_BYPASS_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$INGEST_SECRET"
+          test -n "$SITES_BYPASS_TOKEN"
+          response="$(curl --silent --show-error --fail-with-body --max-time 120 \
+            --request POST \
+            --header "Accept: application/json" \
+            --header "Authorization: Bearer $INGEST_SECRET" \
+            --header "OAI-Sites-Authorization: Bearer $SITES_BYPASS_TOKEN" \
+            "https://tri-cities-resident-compass-il.roamer.chatgpt.site/api/ingest")"
+          node -e 'const result=JSON.parse(process.argv[1]); if(result.ok!==true) throw new Error("Ingestion did not complete safely"); console.log(`Stored ${result.recordCount} current records from ${result.sourceCount} source adapters (${result.mode}).`)' "$response"

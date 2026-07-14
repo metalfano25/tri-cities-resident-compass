@@ -98,3 +98,22 @@ export const ingestionLocks = sqliteTable("ingestion_locks", {
   expiresAt: integer("expires_at").notNull(),
   lastStartedAt: integer("last_started_at").notNull(),
 });
+
+export const communityNeeds = sqliteTable("community_needs", {
+  id: text("id").primaryKey(),
+  community: text("community").notNull(),
+  category: text("category").notNull(),
+  summary: text("summary").notNull(),
+  approximateLocation: text("approximate_location"),
+  residentImpact: text("resident_impact").notNull(),
+  status: text("status").notNull().default("pending"),
+  fingerprint: text("fingerprint").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  reviewedAt: text("reviewed_at"),
+  correctionNote: text("correction_note"),
+}, (table) => [
+  uniqueIndex("community_needs_fingerprint_idx").on(table.fingerprint),
+  index("community_needs_status_created_idx").on(table.status, table.createdAt),
+  index("community_needs_community_category_idx").on(table.community, table.category),
+]);

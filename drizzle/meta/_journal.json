@@ -15,6 +15,13 @@
       "when": 1783964064243,
       "tag": "0001_dusty_aaron_stack",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783992418729,
+      "tag": "0002_curly_forge",
+      "breakpoints": true
     }
   ]
 }
